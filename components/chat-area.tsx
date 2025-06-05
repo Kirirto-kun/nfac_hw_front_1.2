@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef, useEffect } from "react"
 import { Send, MoreVertical, Phone, Video } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -20,27 +19,33 @@ export function ChatArea({ chat, onMessageSent, isTyping, setIsTyping }: ChatAre
   const [input, setInput] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null)
 
-  const { messages, append, isLoading } = useChat({
+  // Используем useChat только для AI взаимодействия, не для отображения сообщений
+  const { append, isLoading } = useChat({
     api: "/api/chat",
-    initialMessages: chat.messages.map((msg) => ({
-      id: msg.id,
-      role: msg.role,
-      content: msg.content,
-    })),
     onFinish: (message) => {
+      // Добавляем ответ AI в чат
       onMessageSent({
         content: message.content,
         role: "assistant",
       })
       setIsTyping(false)
+      setPendingUserMessage(null)
+    },
+    onError: (error) => {
+      console.error("AI Chat error:", error)
+      setIsTyping(false)
+      setPendingUserMessage(null)
     },
   })
 
+  // Автопрокрутка при изменении сообщений
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, isTyping])
+  }, [chat.messages, isTyping])
 
+  // Обновляем состояние печатания
   useEffect(() => {
     setIsTyping(isLoading)
   }, [isLoading, setIsTyping])
@@ -51,8 +56,9 @@ export function ChatArea({ chat, onMessageSent, isTyping, setIsTyping }: ChatAre
 
     const userMessage = input.trim()
     setInput("")
+    setPendingUserMessage(userMessage)
 
-    // Добавляем сообщение пользователя
+    // Сразу добавляем сообщение пользователя в UI
     onMessageSent({
       content: userMessage,
       role: "user",
@@ -60,10 +66,15 @@ export function ChatArea({ chat, onMessageSent, isTyping, setIsTyping }: ChatAre
 
     // Отправляем в AI только если это AI чат
     if (chat.type === "ai") {
-      await append({
-        role: "user",
-        content: userMessage,
-      })
+      try {
+        await append({
+          role: "user",
+          content: userMessage,
+        })
+      } catch (error) {
+        console.error("Failed to send message to AI:", error)
+        setPendingUserMessage(null)
+      }
     }
   }
 
@@ -96,7 +107,9 @@ export function ChatArea({ chat, onMessageSent, isTyping, setIsTyping }: ChatAre
           </div>
           <div>
             <h2 className="font-semibold text-gray-900">{chat.name}</h2>
-            <p className="text-sm text-gray-500">{chat.isOnline ? "в сети" : "был(а) недавно"}</p>
+            <p className="text-sm text-gray-500">
+              {isLoading ? "печатает..." : chat.isOnline ? "в сети" : "был(а) недавно"}
+            </p>
           </div>
         </div>
 
@@ -125,8 +138,20 @@ export function ChatArea({ chat, onMessageSent, isTyping, setIsTyping }: ChatAre
               }`}
             >
               <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-              <div className={`text-xs mt-1 ${message.role === "user" ? "text-blue-100" : "text-gray-500"}`}>
-                {formatTime(message.timestamp)}
+              <div
+                className={`text-xs mt-1 flex items-center justify-between ${
+                  message.role === "user" ? "text-blue-100" : "text-gray-500"
+                }`}
+              >
+                <span>{formatTime(message.timestamp)}</span>
+                {message.role === "user" && message.status && (
+                  <span className="ml-2">
+                    {message.status === "sending" && "⏳"}
+                    {message.status === "sent" && "✓"}
+                    {message.status === "delivered" && "✓✓"}
+                    {message.status === "read" && "✓✓"}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -165,14 +190,19 @@ export function ChatArea({ chat, onMessageSent, isTyping, setIsTyping }: ChatAre
               placeholder="Напишите сообщение..."
               className="min-h-[44px] max-h-32 resize-none border-gray-300 focus:border-blue-500 focus:ring-blue-500"
               rows={1}
+              disabled={isLoading}
             />
           </div>
           <Button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-3 h-11 w-11"
+            className="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-3 h-11 w-11 disabled:opacity-50"
           >
-            <Send className="h-4 w-4" />
+            {isLoading ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
         </form>
       </div>
